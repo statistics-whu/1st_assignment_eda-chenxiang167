@@ -1,0 +1,274 @@
+---
+title: "陈向向+2023281051020+第一次作业"
+author:
+  - 陈向向
+documentclass: ctexart
+keywords:
+  - 中文
+  - R Markdown
+output:
+  rticles::ctex:
+    fig_caption: yes
+    number_sections: yes
+    toc: yes
+---
+
+```{r setup, include = FALSE,echo = FALSE}
+knitr::opts_chunk$set(echo = FALSE,error = FALSE, warning = FALSE, message = FALSE,
+                      out.width = "100%", split = FALSE, fig.align = "center")
+#load library
+library(tidyverse)
+library(nycflights13)
+library(moments)
+library(kableExtra)
+library(lubridate)
+library(scales)
+library(plotly)
+library(patchwork)
+library(ggrepel)
+library(showtext)
+showtext_auto(enable = TRUE)
+```
+
+
+# 数据介绍
+
+本报告**链家**数据获取方式如下：
+    
+报告人在2023年9月12日获取了[链家武汉二手房网站](https://wh.lianjia.com/ershoufang/)数据。
+    
+- 链家二手房网站默认显示100页，每页30套房产，因此本数据包括3000套房产信息；
+    
+- 数据包括了页面可见部分的文本信息，具体字段及说明见作业说明。
+
+ **说明：**数据仅用于教学；由于不清楚链家数据的展示规则，因此数据可能并不是武汉二手房市场的随机抽样，结论很可能有很大的偏差，甚至可能是错误的。
+    
+```{r}
+# 载入数据和预处理
+
+lj<- read_csv("C:\\Users\\cxx89\\Desktop\\作业\\统计\\2023-09-12_cleaned.csv")
+# EDA ---------------------------------------------------------------------
+
+## 如下语句可以解决画图中的中文显示问题，当然你可以用showtext包来解决
+
+theme_set(theme(text = element_text(family="Songti SC",size = 10))) #这里family设置成你系统中的中文字体名。
+
+
+# 做一些数据预处理，比如把字符型变成factor。
+lj$property_name <- as.factor(lj$property_name)
+lj$property_region <- as.factor(lj$property_region)
+lj$bedrooms <- as.numeric(lj$bedrooms)
+lj$livingrooms <- as.numeric(lj$livingrooms)
+lj$directions1 <- as.factor(lj$directions1)
+lj$directions2 <- as.factor(lj$directions2)
+lj$decoration <- as.factor(lj$decoration)
+lj$property_height <- as.factor(lj$property_height)
+lj$property_style <- as.factor(lj$property_style)
+lj$near_subway <- as.factor(lj$near_subway)
+str(lj)
+```
+
+# 数据概览
+
+
+数据表（lj) 共包括 property_name, property_region, price_ttl, price_sqm, bedrooms, livingrooms, building_area, directions1, directions2, decoration, property_t_height, property_height, property_style, followers, near_subway, if_2y, has_key, vr 等 18 个变量, 共 3000 行。表的前 10 行示例如下：
+
+```{r}
+lj %>% 
+  head(10) %>%
+  kable(caption = "武汉链家二手房") %>% 
+  kable_styling()
+```
+
+各变量的简短信息：
+```{r}
+glimpse(lj)
+```
+
+各变量的简短统计：
+```{r}
+summary(lj)
+```
+
+可以看到：
+
+- 直观结论1:
+    此数据中的房屋总价主要集中在95万-188万之间，单价主要集中在10799元/平米到18211元/平米之间，面积主要集中在85平米到117平米之间，房屋户型主要以三室或两室，两厅或者一厅为主，挂牌房产以总层数为11到33层的电梯房为主。
+
+- 直观结论2：
+    均价的中位数比均值低，说明相对于市场均价，高于均价的挂牌房屋数量比低于均价挂牌房屋数量要多，即房屋单价是右偏的；同理，总价也是如此。
+
+- 直观结论3：
+    房间数为三室的最多、客厅数为2厅的最多、朝向为南北数量最多、装修为精装的最多、房产为中楼层的最多、房屋类型为板楼的最多
+
+- ...
+
+# 探索性分析
+
+## 变量房屋单价（price_sqm）的数值描述与图形
+```{r}
+
+skimr::skim(lj, price_sqm)
+
+lj %>%
+  ggplot(aes(x=price_sqm)) +
+  geom_histogram(aes(y=..density..), color = "black", fill = "blue",
+                 binwidth = 200) +
+  geom_density(color="red") # 添加密度曲线
+
+range(lj$price_sqm)
+
+skewness(lj$price_sqm)
+kurtosis(lj$price_sqm)
+
+
+# 以2000元/平米的价格进行分段，对各价格区间段的频次画直方图和计算
+ggplot(data = lj) +
+ geom_histogram(mapping = aes(x = price_sqm,), binwidth = 2000, color = "black", fill = "red")
+
+lj %>%
+  count(cut_width(lj$price_sqm, 2000))
+
+```
+
+发现：
+
+- 1.总体均价在15148元/平方米，挂牌单价中位数为14404元，挂牌房屋的单价主要集中在10799元/平方米-18211元/平方米
+之间，最高价与最低价之间的差值大，说明挂牌房屋的单价较为分散
+
+- 2.房屋单价与其出现的频次呈现正态分布的关系，房屋单价的偏度约为1.08，
+峰度约为5.03，其分布为整体右偏且较为陡峭。
+
+- 3.样本中房屋挂牌单价分别在[11000,13000]、[13000,15000]、[15000,17000]元/平方米区间段的频次最高
+
+## 变量房屋总价（price_ttl）的数值描述与图形
+```{r}
+library(moments)
+lj %>%
+  ggplot(aes(x=price_ttl)) +
+  geom_histogram(aes(y=..density..), color = "black", fill = "blue",
+                 binwidth = 5) +
+  geom_density(color="red")
+
+skimr::skim(lj, price_ttl)
+
+skewness(lj$price_ttl)
+kurtosis(lj$price_ttl)
+
+lj %>%  count(cut_width(lj$price_ttl, 30))
+
+
+```
+发现：
+
+- 1.挂牌房屋的总价平均值为155万，中位数为137万，挂牌房屋总价的密集区间主要在75万到165万之间
+
+- 2.房屋总价与其出现的频次呈现正态分布的关系，房屋总价的偏度约为2.75，
+峰度约为19.13，其分布为整体右偏且非常陡峭，即挂牌的房屋总价在中位数左边集中，且中位数附近出现的频率更多，更为集中。
+
+## 变量房产区域（property_region）的数值描述与图形
+```{r}
+filter_pr1 <-  lj %>%
+  group_by(property_region) %>%
+  filter(n() > 90) 
+
+filter_pr1 %>%
+  count(property_region) 
+
+bar_pr <- filter_pr1 %>%
+  ggplot(mapping = aes(y=property_region)) +
+  geom_bar(fill = "yellow", color = "black") +
+  labs(x = "区域内挂牌房产数量", y = "区域") 
+
+print(bar_pr)
+
+```
+
+发现：
+
+- 挂牌数量最多的几个区域依次是：白沙洲、盘龙城、四新、光谷东、金银潭
+
+
+## 武汉地区的一些高房价区域和小区在哪里？
+
+```{r}
+filter_ttl <- filter(lj, price_ttl > 422 & price_sqm > 33373) # 筛选出总价和均价都大于（中位数+3倍标准差）的数据
+
+arrange(filter_ttl, property_region, property_name, price_ttl, price_sqm)
+
+filter_ttl %>%
+  ggplot(aes(y=property_name)) +
+  geom_bar(fill = "blue")
+
+filter_ttl %>%
+  ggplot(aes(y=property_region)) +
+  geom_bar(fill = "red")
+
+```
+
+发现：
+
+- 1.挂牌房产中的一些总价大于422万且均价大于3.3万/平米的高档小区有：中信泰富滨江金融城九悦、西北湖壹号、外滩棕榈泉、金都汉宫、
+华清园、华发中城荟、华发外滩首府、复地东湖国际、东湖1号、纯水岸东湖、常阳永清城、滨江苑、保利拉菲堂皇、保利大都会。
+
+- 2.其主要分布在以下区域：卓刀泉、中北路、三阳路、积玉桥、黄埔永清、二七、东湖东亭、CBD西北湖；
+
+## 均价会随着面积的增加而减少吗
+```{r}
+# 总体情况
+lj %>%
+  ggplot(aes(x=building_area, y=price_sqm)) +
+  geom_point(size = 1) +
+  geom_smooth()
+
+# 选取价格在均价以下的情况
+lj_ch <- lj %>%
+  filter(price_sqm < 15000)
+
+lj_ch %>%
+  ggplot(aes(x=building_area, y=price_sqm)) +
+  geom_point(size = 1) +
+  geom_smooth()
+
+# 选取价格较为居中的情况
+lj_pm <- lj %>%
+  filter(price_sqm < 30000 & price_sqm > 15000  )
+
+lj_pm %>%
+  ggplot(aes(x=building_area, y=price_sqm)) +
+  geom_point(size = 1) +
+  geom_smooth()
+
+# 选取价格很高的情况
+lj_ph <- lj %>%
+  filter(price_sqm > 30000)
+
+lj_ph %>%
+  ggplot(aes(x=building_area, y=price_sqm)) +
+  geom_point(size = 1) +
+  geom_smooth()
+
+
+
+```
+
+
+发现：
+
+- 均价并不一定会随着面积的增加而减少, 但是平米数超过一定数值，均价会随着面积的增加而减少
+- 在一定面积段内或者在价格段内，均价与面积会有一定的相关线性关系
+
+
+---
+
+# 发现总结
+1.总体均价在15148元/平方米，挂牌单价中位数为14404元，挂牌房屋的单价主要集中在10799元/平方米-18211元/平方米居多；
+  挂牌总价平均值为155万，中位数为137万，挂牌房屋总价的密集区间主要在75万到165万之间。
+  
+2.挂牌数量最多的几个区域依次是：白沙洲、盘龙城、四新、光谷东、金银潭；高档小区主要分布在以下区域：卓刀泉、
+  中北路、三阳路、积玉桥、黄埔永清、二七、东湖东亭、CBD西北湖。
+  
+3.均价并不一定会随着面积的增加而减少, 但是平米数超过一定数值，均价会随着面积的增加而减少；
+  在一定面积段内或者在价格段内，均价与面积会有一定的相关线性关系。
+
+
